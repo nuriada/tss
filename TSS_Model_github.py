@@ -1,35 +1,19 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[65]:
-
-
-# Import der Standardpakete
+# Import packages
 import numpy as np
-#from numpy.polynomial import Polynomial as P
-import matplotlib.pylab as plt # ploty
 import pandas as pd
-import os
 import seaborn as sns
 from scipy.optimize import curve_fit
-import matplotlib.ticker as ticker
-from matplotlib.ticker import StrMethodFormatter
-
 import matplotlib.pyplot as plt
 
 import warnings
 # Omit all warnings
 warnings.filterwarnings("ignore")
 
-import time
-pd.options.display.max_rows = 250 #Changes the number of rows diplayed (default is 60)
-
 
 # # Key parameters of simulation
-
-# In[66]:
-
-
 ## G: The heat pump is assumed to have a "Gütegrad" (G) of 0.4.
 ## TDHW: Target temperature of DHW / Maximum temperature of STES and heat pump outlet temperature is set to 60° C.
 ## TSH: Target temperature of SH 
@@ -54,19 +38,10 @@ storage_sizes=list(storage_sizes_1)+list(storage_sizes_2)+list(storage_sizes_3)
 storage_sizes=list(dict.fromkeys(storage_sizes))[1:]
 direc='.'
 
-
 # # Reading Input data and data organisation
-
-# In[67]:
-
-
 # Read in csv file with outside temperature data
 data_temp = pd.read_excel("input-data/data_temperature.xlsx")
 data_temp['Ta'] = data_temp['TaC']+273.15
-
-
-# In[68]:
-
 
 # Read in csv file with building load data and mearge it with data_temp
 data=pd.read_csv("input-data/Daten-sheet.csv",delimiter=";")
@@ -79,43 +54,22 @@ data=pd.merge(data, data_temp[['Date','Ta','TaC']])
 # Add Heat= DHW+SH 
 data['Heat']=data.loc[:,'DHW']+data.loc[:,'SH']
 
-
-# In[69]:
-
-
 #Factor for Sensitivity
 Factor_PV=1
-
-
-# In[70]:
-
-
 # Calculate excess PV as difference of PV production and electricity used
 excessPV = (data.loc[:, "PV"] * Factor_PV) - data.loc[:, "Elec"]
 excessPV[excessPV<0]=0
 data['excessPV']=excessPV
 data=data[['Date', 'Day', 'PV', 'Elec', 'DHW', 'SH', 'Heat', 'TaC', 'Ta','excessPV']]
 
-
-# In[71]:
-
-
 # Computation of COP
 def COP_computation(G, Ttarget, Ta):
     COP=G*Ttarget/(Ttarget-Ta)
     return(COP)
 
-
-# In[72]:
-
-
 # Compute COP for Ttargets
 data['COPdhw']=COP_computation(G,TDHW,data['Ta'])
 data['COPsh']=COP_computation(G,TSH,data['Ta'])
-
-
-# In[73]:
-
 
 # Transform the excess PV to potential DHW production using its COP
 data['potDHW'] = data['COPdhw'] * ( data['excessPV'])
@@ -133,10 +87,6 @@ data['unmetHeat']=data['unmetSH']
 data.loc[data['unmetDHW']>0,'unmetHeat']=data.loc[data['unmetDHW']>0,'unmetDHW']+data.loc[data['unmetDHW']>0,'unmetHeat']
 data['excessHeat']=-data['unmetHeat']
 
-
-# In[74]:
-
-
 # Put already the storage level and uncovered heat for capacity=0 (the uncovered demand corresponds to the unmet demand)
 data['storageLevel_0'] = 0
 data['uncoveredHeatAfterStorage_0'] = data['unmetHeat'].apply(lambda x:0 if x<0 else x)
@@ -145,10 +95,6 @@ data_concat=pd.concat([data]*n_years)
 data_concat=data_concat.reset_index(drop=True)
 exheat=data_concat['excessHeat'].copy().values
 exheat=pd.Series(exheat)
-
-
-# In[75]:
-
 
 # In exheat, replace the '0' for the value immediately above it so that the '0' are not identified as a sign change for the
 # charge/discharge simulation
@@ -170,10 +116,6 @@ end[-1]=len(exheat)
 
 
 # # Loss function
-
-# In[76]:
-
-
 # Losses based on https://www.npro.energy/main/en/help/heat-storage-loss :Specific loss rates vary depending on storage tank size, with estimates such as 10% per day for small storage tanks of 0.75 m³ and up to 35% per year for very large storage tanks of 70,000 m³
 # Energy_density = 50  kWh/m3
 palette = sns.color_palette("Blues_d")
@@ -208,9 +150,6 @@ plt.text(1e4, 0.001, r'$y\approx$' + f'{params[0]:.4f}' + r'$\cdot x$^' + f'{par
 plt.show()
 
 
-# In[77]:
-
-
 def calculate_loss(storage_level, loss_mode="npro", fraction=0.001):
     if loss_mode == "npro":
         loss = fraction* storage_level
@@ -221,16 +160,11 @@ def calculate_loss(storage_level, loss_mode="npro", fraction=0.001):
 
 
 # ### Function for loading process
-
-# In[78]:
-
-
 def charge_with_loss(exheat, storage_level, storage_size, begin, end, pos):
     # excessHeat: Output variable of potentially still available excess heat during simulation window between begin[pos] and end[pos]
     bp = begin[pos]
     ep = end[pos]
     lev = storage_level[bp - 1]
-    cum = exheat[bp:ep].cumsum() + lev
     print(f"Charge with loss: Initial 'begin': {bp}, 'end': {ep}, storage_level={lev}")
     losses = []
     excessHeat=[]
@@ -254,10 +188,6 @@ def charge_with_loss(exheat, storage_level, storage_size, begin, end, pos):
 
 
 # ### Function for discharging
-
-# In[79]:
-
-
 def discharge_with_loss(exheat, storage_level,  storage_size, begin, end, pos, uncov):
     bp = begin[pos]
     ep = end[pos]
@@ -289,9 +219,6 @@ def discharge_with_loss(exheat, storage_level,  storage_size, begin, end, pos, u
 
 # ## Main simulation loop
 
-# In[80]:
-
-
 loss_data = pd.DataFrame()
 storage_level0=pd.Series([0] * len(exheat))
 surplusHeat_0=pd.Series([0] * len(exheat))
@@ -307,7 +234,7 @@ for storage_size in storage_sizes:
     total_losses=np.zeros(len(storage_level))
     pos = 0
 
-    display(pos, len(begin))
+    print(pos, len(begin))
     while pos < (len(begin) - 1):
         storage_level, new_losses,newSurplusHeat = charge_with_loss(exheat, storage_level, storage_size, begin, end, pos)
         total_losses[begin[pos]:end[pos]]=new_losses
@@ -323,17 +250,9 @@ for storage_size in storage_sizes:
 
 
 # # Compute HSS
-
-# In[81]:
-
-
 # First and second year data
 data_firstyear_loss = loss_data[:8760] 
 data_secondyear_loss = loss_data[8760:] 
-
-
-# In[82]:
-
 
 # Calculation HSS under losses
 total_heat_demand = data['Heat'].sum()
@@ -341,4 +260,3 @@ hss_losses = {}
 for size in storage_sizes:
     uncovered_heat = data_secondyear_loss[f'uncov_demand_losses_{size}'].sum()
     hss_losses[size] = 100 * (1 - uncovered_heat / total_heat_demand)
-
